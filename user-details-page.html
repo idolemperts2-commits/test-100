@@ -169,25 +169,44 @@
         document.getElementById('screen').textContent = window.screen.width + ' × ' + window.screen.height;
         document.getElementById('lang').textContent = navigator.language || 'Unknown';
 
-        // Fetch IP and geolocation info
+        // Fetch IP and geolocation info using ipinfo.io (fallback to ipify)
+        function fetchIPInfo() {
+            return fetch('https://ipinfo.io/json')
+                .then(r => r.ok ? r.json() : Promise.reject('ipinfo failed'))
+                .catch(() => {
+                    // fallback to ipify for IP only
+                    return fetch('https://api.ipify.org?format=json')
+                        .then(r => r.ok ? r.json() : { ip: 'Unavailable' })
+                        .then(data => ({ ip: data.ip }));
+                });
+        }
+
         Promise.all([
-            fetch('https://ipapi.co/json/').then(r => r.ok ? r.json() : Promise.reject('ipapi failed')),
-            navigator.geolocation.getCurrentPosition(
-                p => ({ lat: p.coords.latitude, lng: p.coords.longitude }),
-                () => null,
-                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-            ).catch(() => null)
+            fetchIPInfo(),
+            new Promise((resolve) => {
+                if (!navigator.geolocation) { resolve(null); return; }
+                navigator.geolocation.getCurrentPosition(
+                    p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+                    () => resolve(null),
+                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                );
+            })
         ]).then(([ipData, geoData]) => {
             if (ipData) {
                 document.getElementById('ip').textContent = ipData.ip || '—';
-                document.getElementById('country').textContent = ipData.country_name || '—';
+                document.getElementById('country').textContent = ipData.country || '—';
                 document.getElementById('region').textContent = ipData.region || '—';
                 document.getElementById('city').textContent = ipData.city || '—';
                 document.getElementById('timezone').textContent = ipData.timezone || '—';
                 document.getElementById('isp').textContent = ipData.org || '—';
-                if (!geoData) {
-                    document.getElementById('lat').textContent = ipData.latitude || '—';
-                    document.getElementById('lng').textContent = ipData.longitude || '—';
+                // location from ipinfo (loc = "lat,lng")
+                if (ipData.loc && !geoData) {
+                    const [lat, lng] = ipData.loc.split(',');
+                    document.getElementById('lat').textContent = lat || '—';
+                    document.getElementById('lng').textContent = lng || '—';
+                }
+                if (ipData.postal) {
+                    // optionally show postal code somewhere, but not in current list
                 }
             }
             if (geoData) {
@@ -198,12 +217,9 @@
             console.error('Error fetching details:', err);
             document.getElementById('error-container').innerHTML = 
                 '<div class="error">⚠️ Some details could not be fetched. Please check your connection.</div>';
-            document.getElementById('ip').textContent = 'Unavailable';
-            document.getElementById('country').textContent = 'Unavailable';
-            document.getElementById('region').textContent = 'Unavailable';
-            document.getElementById('city').textContent = 'Unavailable';
-            document.getElementById('timezone').textContent = 'Unavailable';
-            document.getElementById('isp').textContent = 'Unavailable';
+            ['ip','country','region','city','timezone','isp'].forEach(id => {
+                document.getElementById(id).textContent = 'Unavailable';
+            });
         });
     </script>
 </body>
