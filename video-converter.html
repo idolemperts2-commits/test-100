@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Client‑Side Video Converter</title>
+<style>
+  body {font-family:Arial,Helvetica,sans-serif;background:#f5f5f5;display:flex;justify-content:center;align-items:center;height:100vh;}
+  .container {background:#fff;padding:20px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.2);max-width:480px;width:100%;}
+  h2 {text-align:center;margin-bottom:20px;}
+  label {display:block;margin-top:12px;}
+  select, input[type="file"] {width:100%;margin-top:4px;}
+  button {margin-top:20px;width:100%;padding:10px;background:#4a90e2;color:#fff;border:none;border-radius:4px;cursor:pointer;}
+  button:disabled {background:#999;cursor:not-allowed;}
+  #output {margin-top:20px;text-align:center;}
+</style>
+</head>
+<body>
+<div class="container">
+  <h2>Video Converter (Wasm‑FFmpeg)</h2>
+  <label>Upload video file:
+    <input type="file" id="fileInput" accept="video/*">
+  </label>
+  <label>Target platform:
+    <select id="platformSelect">
+      <option value="youtube">YouTube (1080p, 5 Mbps)</option>
+      <option value="instagram">Instagram (1080×1920, 2 Mbps)</option>
+      <option value="tiktok">TikTok (1080×1920, 3 Mbps)</option>
+    </select>
+  </label>
+  <label>Maximum output size (MB) – optional:
+    <input type="number" id="maxSize" min="1" placeholder="e.g., 20">
+  </label>
+  <button id="convertBtn" disabled>Convert</button>
+  <div id="output"></div>
+</div>
+
+<script type="module">
+import { createFFmpeg, fetchFile } from 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js';
+
+const ffmpeg = createFFmpeg({ log: true });
+const fileInput = document.getElementById('fileInput');
+const platformSelect = document.getElementById('platformSelect');
+const maxSizeInput = document.getElementById('maxSize');
+const convertBtn = document.getElementById('convertBtn');
+const outputDiv = document.getElementById('output');
+
+let selectedFile;
+
+fileInput.onchange = () => {
+  selectedFile = fileInput.files[0];
+  convertBtn.disabled = !selectedFile;
+};
+
+const presets = {
+  youtube: {scale: '1920:1080', bitrate: '5M'},
+  instagram: {scale: '1080:1920', bitrate: '2M'},
+  tiktok: {scale: '1080:1920', bitrate: '3M'}
+};
+
+async function convert() {
+  if (!selectedFile) return;
+  convertBtn.disabled = true;
+  outputDiv.innerHTML = 'Loading FFmpeg…';
+  if (!ffmpeg.isLoaded()) await ffmpeg.load();
+
+  const { name } = selectedFile;
+  const data = await fetchFile(selectedFile);
+  ffmpeg.FS('writeFile', name, data);
+
+  const platform = platformSelect.value;
+  const {scale, bitrate} = presets[platform];
+  const outName = 'output_' + name;
+  const args = ['-i', name, '-vf', `scale=${scale}:force_original_aspect_ratio=decrease`, '-b:v', bitrate, '-c:a', 'aac', '-b:a', '128k', outName];
+
+  outputDiv.innerHTML = 'Processing…';
+  try {
+    await ffmpeg.run(...args);
+    const outData = ffmpeg.FS('readFile', outName);
+    const blob = new Blob([outData.buffer], { type: 'video/mp4' });
+    const url = URL.createObjectURL(blob);
+    // Optional size enforcement – if user gave a max size, we simply warn if exceeded
+    const maxSizeMB = parseInt(maxSizeInput.value,10);
+    if (maxSizeMB && blob.size > maxSizeMB*1024*1024) {
+      outputDiv.innerHTML = `<p>⚠️ Output size ${ (blob.size/1024/1024).toFixed(2) } MB exceeds ${maxSizeMB} MB.</p>`;
+    }
+    const a = document.createElement('a');
+    a.href = url; a.download = outName; a.textContent = 'Download converted video';
+    outputDiv.innerHTML = '';
+    outputDiv.appendChild(a);
+  } catch (e) {
+    outputDiv.innerHTML = `<p style="color:red;">❌ Conversion failed: ${e.message}</p>`;
+  }
+  convertBtn.disabled = false;
+}
+
+convertBtn.onclick = convert;
+</script>
+</body>
+</html>
